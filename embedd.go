@@ -1,140 +1,116 @@
 package bundle
 
 import (
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"github.com/andybalholm/brotli"
+	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type srcFile struct {
-	blobs []*blob
+	blobs       []*blob
 	PackageName string
+	Resources   []*resource
+	Version     string
 }
 
 func (s *srcFile) Blobs() []*blob {
 	return s.blobs
 }
 
-func (s *srcFile) addFile(fname string, name string, includeSrc, includeGzip, includeBrotli bool) error {
-	b, err := ioutil.ReadFile(fname)
+func (s *srcFile) addFile(fname string, name string, opts Options) error {
+	fmt.Println(fname)
+	buf, err := ioutil.ReadFile(fname)
 	if err != nil {
 		return err
 	}
 
-	res := resource{
-		Name: name,
+	stat, err := os.Stat(fname)
+	if err != nil {
+		return err
 	}
 
-	if includeSrc {
-		myBlob := s.dedub(b)
-		res.ConstName = myBlob.ConstName()
-	}
+	hash := sha256.Sum256(buf)
+	packed := mustEncodeAscii85(mustBrotliCompress(buf))
 
-	if includeBrotli {
-		fork := &resource{
-			Name:      "br",
-			ConstName: s.dedub(brotliCompress(b)).ConstName(),
+	blb := s.getBlob(hash)
+	if blb == nil {
+		blb = &blob{
+			Hash: hash,
+			Data: strconv.Quote(packed),
 		}
-		res.Forks = append(res.Forks, fork)
+		s.blobs = append(s.blobs, blb)
 	}
 
-	if includeGzip {
-		fork := &resource{
-			Name:      "gzip",
-			ConstName: s.dedub(gzipCompress(b)).ConstName(),
+	res := &resource{
+		Name:          name,
+		Size:          stat.Size(),
+		Mode:          stat.Mode(),
+		LastMod:       stat.ModTime(),
+		Sha265:        hex.EncodeToString(hash[:]),
+		CacheUnpacked: !opts.DisableCacheUnpacked,
+		CacheBrotli:   !opts.DisableCacheBrotli,
+		CacheGzip:     !opts.DisableCacheGzip,
+		ConstName:     blb.ConstName(),
+	}
+
+	s.Resources = append(s.Resources, res)
+
+	return nil
+}
+
+func (s *srcFile) getBlob(hash [32]byte) *blob {
+	for _, blob := range s.blobs {
+		if blob.Hash == hash {
+			return blob
 		}
-		res.Forks = append(res.Forks, fork)
 	}
 
 	return nil
 }
 
-func (s *srcFile) dedub(b []byte) *blob {
-	hash := sha256.Sum256(b)
-	hashHex := hex.EncodeToString(hash[:])
-
-	var myBlob *blob
-	for _, blb := range s.blobs {
-		if blb.Hash == hashHex {
-			myBlob = blb
-			break
-		}
-	}
-
-	if myBlob == nil {
-		myBlob = &blob{
-			Hash:   hashHex,
-			Base64: base64.StdEncoding.EncodeToString(b),
-		}
-		s.blobs = append(s.blobs, myBlob)
-	}
-	return myBlob
-}
-
-func gzipCompress(in []byte) []byte {
-	buf := &bytes.Buffer{}
-	writer, err := gzip.NewWriterLevel(buf, gzip.BestCompression)
-	if err != nil {
-		panic(err)
-	}
-	_, err = writer.Write(in)
-	if err != nil {
-		panic(err)
-	}
-	err = writer.Close()
-	if err != nil {
-		panic(err)
-	}
-	return buf.Bytes()
-}
-
-func brotliCompress(in []byte) []byte {
-	buf := &bytes.Buffer{}
-	writer := brotli.NewWriterLevel(buf, brotli.BestCompression)
-	_, err := writer.Write(in)
-	if err != nil {
-		panic(err)
-	}
-	err = writer.Close()
-	if err != nil {
-		panic(err)
-	}
-	return buf.Bytes()
-}
-
 type blob struct {
-	Hash   string
-	Base64 string
+	Hash [32]byte
+	Data string
 }
 
 func (b *blob) ConstName() string {
-	return "blob_" + b.Base64
+	return "blob_" + hex.EncodeToString(b.Hash[:])
 }
 
+// name string, size int64, mode os.FileMode, lastMod time.Time, sha256 string, cacheUnpacked, cacheBrotli, cacheGzip bool, data string
 type resource struct {
-	Name      string
-	ConstName string
-	Forks     []*resource
+	Name          string
+	Size          int64
+	Mode          os.FileMode
+	LastMod       time.Time
+	Sha265        string
+	CacheUnpacked bool
+	CacheBrotli   bool
+	CacheGzip     bool
+	ConstName     string
 }
 
-func scan(dir string) ([]string, error) {
-	var r []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
-			return filepath.SkipDir
-		}
-		if info.Mode().IsRegular() {
-			r = append(r, path)
-		}
+func (r *resource) FactoryMethod() string {
+	sb := strings.Builder{}
+	sb.WriteString("bundle.NewResource(")
+	sb.WriteString(strconv.Quote(r.Name) + ",")
+	sb.WriteString(strconv.Itoa(int(r.Size)) + ",")
+	sb.WriteString(strconv.Itoa(int(r.Mode)) + ",")
 
-		return nil
-	})
-	return r, err
+	sb.WriteString("time.Unix(")
+	sb.WriteString(strconv.FormatInt(r.LastMod.Unix(), 10) + ",")
+	sb.WriteString(strconv.Itoa(r.LastMod.Nanosecond()))
+	sb.WriteString("),")
+	sb.WriteString(strconv.Quote(r.Sha265) + ",")
+	sb.WriteString(strconv.FormatBool(r.CacheUnpacked) + ",")
+	sb.WriteString(strconv.FormatBool(r.CacheBrotli) + ",")
+	sb.WriteString(strconv.FormatBool(r.CacheGzip) + ",")
+	sb.WriteString(r.ConstName)
+	sb.WriteString(")")
+	return sb.String()
 }
