@@ -1,4 +1,4 @@
-# bundle
+# bundle [![GoDoc](https://godoc.org/github.com/golangee/bundle?status.svg)](http://godoc.org/github.com/golangee/bundle)  
 is a workaround until [35950](https://github.com/golang/go/issues/35950) is resolved. 
 *bundle* embedds files, using a few wanted optimizations, and there is no other 
 which supports this out of the box:
