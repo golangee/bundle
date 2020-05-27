@@ -2,6 +2,8 @@ package bundle
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"os"
 	"sync"
@@ -37,6 +39,16 @@ func NewResource(name string, size int64, mode os.FileMode, lastMod time.Time, s
 		lastMod:           lastMod,
 		sha256String:      sha256,
 	}
+}
+
+// NewResourceFromBytes creates a new resource for the given buffer
+func NewResourceFromBytes(name string, buf []byte) *Resource {
+	hash := sha256.Sum256(buf)
+
+	r := NewResource(name, int64(len(buf)), os.ModePerm, time.Now(), hex.EncodeToString(hash[:]), true, true, true, "")
+	r.cacheUnpacked = buf
+
+	return r
 }
 
 func (r *Resource) Mode() os.FileMode {
@@ -110,7 +122,14 @@ func (r *Resource) brotli() []byte {
 		return r.cacheBrotli
 	}
 
-	buf := mustDecodeAscii85(r.encoded)
+	var buf []byte
+	if len(r.encoded) == 0 {
+		buf = r.unpack() // in-memory without serialized string variant
+		buf = mustBrotliCompress(buf)
+	} else {
+		buf = mustDecodeAscii85(r.encoded)
+	}
+
 	if r.mustCacheBrotli {
 		// kind of double check idiom
 		r.mutex.Lock()

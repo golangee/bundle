@@ -22,6 +22,7 @@ var mimeTypes = map[string]string{
 	".webp": "image/webp",
 	".xml":  "text/xml; charset=utf-8",
 	".map":  "application/json",
+	".json": "application/json",
 	".woff": "font/woff2",
 	".ttf":  "font/ttf",
 }
@@ -29,7 +30,7 @@ var mimeTypes = map[string]string{
 // Handle is currently a trivial implementation for delivering resources, however
 // it will use the resources to support gzip and brotli compression and more importantly etags.
 // It simply matches the url path against the name of a resource.
-func Handle(resources ...*Resource) func(http.ResponseWriter, *http.Request) {
+func Handle(prefix string, resources ...*Resource) func(http.ResponseWriter, *http.Request) {
 	files := make(map[string]*Resource)
 	for _, r := range resources {
 		files[r.name] = r
@@ -37,19 +38,29 @@ func Handle(resources ...*Resource) func(http.ResponseWriter, *http.Request) {
 
 	return func(writer http.ResponseWriter, request *http.Request) {
 		path := request.URL.Path
+		if strings.HasPrefix(path, prefix) {
+			path = path[len(prefix):]
+			if !strings.HasPrefix(path, "/") {
+				path = "/" + path
+			}
+		}
+
 		resource := files[path]
 		if resource == nil {
-			http.NotFound(writer, request)
-			return
+			if path == "/" {
+				resource = files["/index.html"]
+				if resource == nil {
+					resource = files["/index.htm"]
+				}
+			}
+
+			if resource == nil {
+				http.NotFound(writer, request)
+				return
+			}
 		}
 
-		etag := request.Header.Get("If-None-Match")
-		if etag == resource.sha256String {
-			writer.WriteHeader(http.StatusNotModified)
-			return
-		}
-
-		contentType := mimeTypes[strings.ToLower(filepath.Ext(path))]
+		contentType := mimeTypes[strings.ToLower(filepath.Ext(resource.Name()))]
 		if contentType == "" {
 			contentType = "application/octet"
 		}
@@ -58,16 +69,22 @@ func Handle(resources ...*Resource) func(http.ResponseWriter, *http.Request) {
 		writer.Header().Set("cache-control", "no-cache")
 		writer.Header().Set("etag", resource.sha256String)
 
+		etag := request.Header.Get("If-None-Match")
+		if etag == resource.sha256String {
+			writer.WriteHeader(http.StatusNotModified)
+			return
+		}
+
 		if strings.Contains(request.Header.Get("Accept-Encoding"), "br") {
 			writer.Header().Set("Content-Encoding", "br")
-			writer.Write(files[path].brotli())
+			writer.Write(resource.brotli())
 			return
 		} else {
 			if strings.Contains(request.Header.Get("Accept-Encoding"), "gzip") {
 				writer.Header().Set("Content-Encoding", "gzip")
-				writer.Write(files[path].gzip())
+				writer.Write(resource.gzip())
 			} else {
-				writer.Write(files[path].unpack())
+				writer.Write(resource.unpack())
 			}
 		}
 	}

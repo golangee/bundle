@@ -11,6 +11,7 @@ if using [base-122](http://blog.kevinalbs.com/base122) would be a good choice. T
 has only around 21% overhead, if compressing again with bzip.
 * optimized http handler which uses etags and no-cache headers 
 and optimized in-memory caches of compression variants
+* customizable resources at runtime
 * only regenerates source code, if files have changed. Perfect for *go generate*.
 
 

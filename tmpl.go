@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// BundleVersion contains the hash of all embedded files and their bundle options.
 const BundleVersion = "{{.Version}}"
 
 // Bundle contains all embedded named resources.

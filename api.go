@@ -16,6 +16,7 @@ import (
 )
 
 const constPrefixHash = "const BundleVersion = "
+const bundleGeneratorVersion = "0.0.1"
 
 type Options struct {
 	TargetDir            string
@@ -27,16 +28,6 @@ type Options struct {
 	DisableCacheUnpacked bool
 	DisableCacheGzip     bool
 	DisableCacheBrotli   bool
-}
-
-type Bundle struct {
-	resources []*Resource
-}
-
-func Make(resources ...*Resource) *Bundle {
-	return &Bundle{
-		resources: resources,
-	}
 }
 
 // Embed includes the given files or folders and creates a new go src file. It expects a working dir somewhere
@@ -57,8 +48,9 @@ func Embed(opts Options) error {
 	for _, inc := range opts.Include {
 		fname := filepath.Clean(inc)
 		if !filepath.IsAbs(fname) {
-			fname = filepath.Join(cwd, fname)
+			fname = filepath.Clean(filepath.Join(cwd, fname))
 		}
+
 		stat, err := os.Stat(fname)
 		if err != nil {
 			return err
@@ -85,7 +77,7 @@ func Embed(opts Options) error {
 		return err
 	}
 
-	targetGenFile := filepath.Join(opts.TargetDir, "bundle.gen.go")
+	targetGenFile := filepath.Clean(filepath.Join(cwd, opts.TargetDir, "bundle.gen.go"))
 	foundHash, err := extractFileHash(targetGenFile)
 	if err != nil {
 		return err
@@ -106,15 +98,22 @@ func Embed(opts Options) error {
 	}
 
 	for _, file := range files {
-		name := file
+		name, err := filepath.Rel(cwd, file)
+		if err != nil {
+			panic(err)
+		}
+		name = "/" + name
 		for _, strip := range opts.StripPrefixes {
-			if strings.HasPrefix(file, strip) {
-				name = file[len(strip):]
+			if strings.HasPrefix(name, strip) {
+				name = name[len(strip):]
+				if !strings.HasPrefix(name, "/") {
+					name = "/" + name
+				}
 				break
 			}
 		}
 
-		err := src.addFile(file, name, opts)
+		err = src.addFile(file, name, opts)
 		if err != nil {
 			return err
 		}
@@ -176,6 +175,8 @@ func fileHash(files []string, opts interface{}) (string, error) {
 			return "", err
 		}
 	}
+	hash.Write([]byte(bundleGeneratorVersion))
+
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
