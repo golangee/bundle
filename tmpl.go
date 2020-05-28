@@ -31,6 +31,13 @@ import (
 // BundleVersion contains the hash of all embedded files and their bundle options.
 const BundleVersion = "{{.Version}}"
 
+
+const(
+  {{ range .Names }}
+		{{.Key}}="{{.Value}}"
+  {{ end }}	
+)
+
 // Bundle contains all embedded named resources.
 var Bundle = bundle.Make(
 		

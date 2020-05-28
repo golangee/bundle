@@ -25,11 +25,16 @@ import (
 	"time"
 )
 
+type keyValue struct {
+	Key, Value string
+}
+
 type srcFile struct {
 	blobs       []*blob
 	PackageName string
 	Resources   []*resource
 	Version     string
+	Names       []keyValue
 }
 
 func (s *srcFile) Blobs() []*blob {
@@ -71,6 +76,11 @@ func (s *srcFile) addFile(fname string, name string, opts Options) error {
 		CacheGzip:     !opts.DisableCacheGzip,
 		ConstName:     blb.ConstName(),
 	}
+
+	s.Names = append(s.Names, keyValue{
+		Key:   slashToCamelCase(name),
+		Value: name,
+	})
 
 	s.Resources = append(s.Resources, res)
 

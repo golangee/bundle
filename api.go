@@ -76,6 +76,8 @@ func Embed(opts Options) error {
 				return err
 			}
 			files = append(files, fnames...)
+		} else {
+			files = append(files, fname)
 		}
 	}
 

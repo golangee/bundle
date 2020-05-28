@@ -90,6 +90,9 @@ func mustEncodeAscii85(buf []byte) string {
 	if err != nil {
 		panic(err)
 	}
+	if err := enc.Close(); err != nil {
+		panic(err)
+	}
 	return tmp.String()
 }
 

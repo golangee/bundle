@@ -22,6 +22,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 // A Resource relates a bunch of bytes with a name and optionally cached variants of the same data.
@@ -86,6 +87,7 @@ func (r *Resource) Name() string {
 	return r.name
 }
 
+// Size returns the uncompressed length in bytes
 func (r *Resource) Size() int64 {
 	return r.size
 }
@@ -108,6 +110,26 @@ func (r *Resource) unpack() []byte {
 // Read opens the resource to read the unpacked data.
 func (r *Resource) Read() io.Reader {
 	return bytes.NewReader(r.unpack())
+}
+
+// AsString returns the internal byte sequence as string
+func (r *Resource) AsString() string {
+	buf := r.unpack()
+	return *(*string)(unsafe.Pointer(&buf))
+}
+
+// Version returns the hex variant of the sha256 hash
+func (r *Resource) Version() string {
+	return r.sha256String
+}
+
+// AsBytes returns the internal byte sequence as a defensive copy
+func (r *Resource) AsBytes() []byte {
+	buf := r.unpack()
+	cpy := make([]byte, len(buf))
+	copy(cpy, buf)
+
+	return cpy
 }
 
 func (r *Resource) gzip() []byte {
